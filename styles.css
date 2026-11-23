@@ -30,6 +30,9 @@ button, input, textarea { font: inherit; color: inherit; }
 .tile-icon, .card-emoji, .big-emoji { color: var(--or); }
 .ava, .pod-ava, .board-ava { color: var(--or-dd); }
 .ava.on { color: var(--or); }
+.join-go { margin-top: 14px; }
+.lobby-wait .waiting { margin: 4px 0 18px; }
+.lobby-wait .avatars { margin-bottom: 0; }
 .logo-mark { color: var(--or); }
 .sk-icon { color: #a87400; }
 .sk-chest.picked.good .sk-icon { color: var(--good); }

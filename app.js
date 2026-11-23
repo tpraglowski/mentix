@@ -381,6 +381,9 @@
         send(conn, { t: 'joined', name, quizTitle: quiz.title, modeName: mode.icon + ' ' + mode.name });
         if (S.phase === 'game') send(conn, startMsg());
         redraw();
+      } else if (msg.t === 'avatar') {
+        const p = S.players.get(conn.peer);
+        if (p && S.phase === 'lobby' && AVATARS.includes(msg.avatar)) { p.avatar = msg.avatar; redraw(); }
       } else if (msg.t === 'score') {
         const p = S.players.get(conn.peer);
         if (p && S.phase === 'game') { p.score = Math.max(0, Math.min(1e12, Math.round(Number(msg.score) || 0))); redraw(); }
@@ -443,11 +446,6 @@
   function joinScreen(pin, error) {
     endSession();
     const name = h('input', { class: 'name-input', maxlength: '16', placeholder: 'Twój nick', value: me.name, autocomplete: 'off' });
-    const avas = h('div', { class: 'avatars' });
-    const drawAvas = () => avas.replaceChildren(...AVATARS.map(a => h('button', {
-      class: 'ava' + (a === me.avatar ? ' on' : ''), onclick: () => { me.avatar = a; drawAvas(); }
-    }, a)));
-    drawAvas();
     const go = () => {
       const n = name.value.replace(/\s+/g, ' ').trim();
       if (!n) return shake(name);
@@ -462,9 +460,8 @@
         h('h2', {}, 'Kim jesteś?'),
         error ? h('p', { class: 'error' }, error) : null,
         name,
-        h('p', { class: 'label' }, 'Wybierz postać:'),
-        avas,
-        btn('Wchodzę! 🚀', go, 'big wide'))
+        btn('Wchodzę! 🚀', go, 'big wide join-go'),
+        h('p', { class: 'muted small' }, 'Wygląd wybierzesz w poczekalni.'))
     );
     setTimeout(() => name.focus(), 50);
   }
@@ -510,11 +507,26 @@
         S.phase = 'lobby';
         clearTimeout(S.to);
         me.name = msg.name;
-        screen(h('div', { class: 'center-box' },
-          h('div', { class: 'big-emoji bounce' }, me.avatar),
+        const preview = h('div', { class: 'big-emoji bounce' }, me.avatar);
+        const avas = h('div', { class: 'avatars' });
+        const drawAvas = () => avas.replaceChildren(...AVATARS.map(a => h('button', {
+          class: 'ava' + (a === me.avatar ? ' on' : ''),
+          onclick: () => {
+            if (a === me.avatar) return;
+            me.avatar = a; saveMe();
+            preview.textContent = a;
+            drawAvas();
+            try { S.conn.send({ t: 'avatar', avatar: a }); } catch (e) {}
+          }
+        }, a)));
+        drawAvas();
+        screen(h('div', { class: 'join-box lobby-wait' },
+          preview,
           h('h2', {}, 'Jesteś w grze, ' + me.name + '!'),
-          h('p', {}, String(msg.quizTitle || ''), ' · ', String(msg.modeName || '')),
-          h('p', { class: 'waiting' }, h('span', { class: 'dots' }), 'Czekamy, aż host wystartuje…')));
+          h('p', { class: 'muted' }, String(msg.quizTitle || ''), ' · ', String(msg.modeName || '')),
+          h('p', { class: 'waiting' }, h('span', { class: 'dots' }), 'Czekamy, aż host wystartuje…'),
+          h('p', { class: 'label' }, 'Wybierz swój wygląd:'),
+          avas));
       } else if (msg.t === 'start') {
         const mode = findMode(msg.modeId);
         if (!mode) { fail('Nie znam trybu gry „' + msg.modeId + '”. Odśwież stronę.'); return; }
