@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Quizolandia</title>
+  <meta name="description" content="Quizy z trybami gry — dołącz kodem PIN albo zahostuj własną grę.">
+  <meta name="theme-color" content="#ff7a00">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css?v=1">
+</head>
+<body>
+  <header class="topbar">
+    <a class="logo" href="./" id="logo"><span class="logo-mark">🍊</span><span class="logo-text">Quiz<span>olandia</span></span></a>
+  </header>
+  <main id="app"></main>
+
+  <script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <script src="core.js?v=1"></script>
+  <script src="quizzes.js?v=1"></script>
+
+  <!-- ===== TRYBY GRY — tu dopisuj swoje pliki z folderu modes/ ===== -->
+  <script src="modes/klasyk.js?v=1"></script>
+  <script src="modes/skrzynie.js?v=1"></script>
+  <!-- ============================================================== -->
+
+  <script src="app.js?v=1"></script>
+</body>
+</html>
