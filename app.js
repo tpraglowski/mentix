@@ -30,6 +30,27 @@
   function shake(el) { el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake'); el.focus(); }
   const mmss = ms => { const s = Math.ceil(ms / 1000); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
   const pytan = n => n + ' ' + (n === 1 ? 'pytanie' : (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14)) ? 'pytania' : 'pytań');
+  const joinUrl = pin => location.origin + location.pathname.replace(/index\.html$/, '') + '?pin=' + pin;
+  function qrSvg(text) {
+    if (typeof qrcode === 'undefined') return null;
+    const qr = qrcode(0, 'M');
+    qr.addData(text);
+    qr.make();
+    const box = document.createElement('div');
+    box.innerHTML = qr.createSvgTag({ cellSize: 8, margin: 2, scalable: true });
+    return box.firstElementChild;
+  }
+  function showBigQr(pin) {
+    const svg = qrSvg(joinUrl(pin));
+    if (!svg) return;
+    const ov = h('div', { class: 'qr-big', onclick: () => ov.remove() },
+      h('div', { class: 'qr-big-card' },
+        h('div', { class: 'qr-big-code' }, svg),
+        h('div', { class: 'big-pin' }, pin.slice(0, 3) + ' ' + pin.slice(3)),
+        h('p', { class: 'muted' }, 'Zeskanuj aparatem w telefonie · kliknij, żeby zamknąć')));
+    document.body.append(ov);
+    onLeave(() => ov.remove());
+  }
   const findMode = id => Q.modes.find(m => m.id === id);
   let me = loadMe();
   function loadMe() {
@@ -279,6 +300,8 @@
     const status = h('p', { class: 'muted' }, 'Tworzę grę…');
     const list = h('div', { class: 'lobby-players' });
     const count = h('span', {}, '0');
+    const qrBox = h('button', { class: 'qr-box', title: 'Powiększ kod QR', onclick: () => S.pin && showBigQr(S.pin) },
+      h('div', { class: 'qr-code' }), h('span', {}, 'Zeskanuj, żeby dołączyć'));
     const startBtn = btn('Start ▶', startGame, 'big');
     startBtn.disabled = true;
     const site = location.host + location.pathname.replace(/index\.html$/, '');
@@ -286,7 +309,8 @@
       back(home),
       h('div', { class: 'lobby' },
         h('div', { class: 'lobby-head' },
-          h('div', {}, h('p', { class: 'muted' }, 'Wejdź na ', h('b', {}, site), ' i wpisz PIN:'), pinEl, status),
+          h('div', { class: 'lobby-pin' }, h('p', { class: 'muted' }, 'Wejdź na ', h('b', {}, site), ' i wpisz PIN:'), pinEl, status),
+          qrBox,
           h('div', { class: 'lobby-info' },
             h('div', {}, (quiz.emoji || '📝') + ' ', h('b', {}, quiz.title)),
             h('div', {}, mode.icon + ' ', h('b', {}, mode.name)),
@@ -323,6 +347,8 @@
         S.pin = pin;
         pinEl.textContent = pin.slice(0, 3) + ' ' + pin.slice(3);
         status.textContent = 'Gra gotowa — czekamy na graczy.';
+        const svg = qrSvg(joinUrl(pin));
+        if (svg) qrBox.firstChild.replaceChildren(svg); else qrBox.remove();
       });
       peer.on('error', err => {
         if (session !== S) return;
@@ -629,5 +655,6 @@
 
   // start: ?pin=123456 w adresie od razu otwiera dołączanie
   const urlPin = (new URLSearchParams(location.search).get('pin') || '').replace(/\D/g, '');
+  if (location.search) history.replaceState(null, '', location.pathname);
   if (urlPin.length === 6) joinScreen(urlPin); else home();
 })();
