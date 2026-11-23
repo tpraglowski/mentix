@@ -93,3 +93,12 @@ body.dash main { min-width: 0; }
   .ord-slot { min-height: 44px; font-size: 1rem; }
   .q-edit-head .type-select { max-width: 150px; }
 }
+
+/* ---------- powiadomienia + baza ---------- */
+.notes { position: fixed; right: 16px; bottom: 16px; z-index: 60; display: flex; flex-direction: column; gap: 8px; max-width: min(420px, calc(100vw - 32px)); }
+.note { background: var(--ink); color: #fff; border-radius: 14px; padding: 12px 16px; font-weight: 800; box-shadow: 0 6px 20px rgba(0,0,0,.15); animation: popIn .25s; }
+.note.good { background: var(--good); }
+.note.bad { background: var(--bad); }
+.badge.warn { background: #fde8e8; color: var(--bad); }
+.cloud-status { margin: -4px 0 0; }
+@media (max-width: 760px) { .notes { bottom: 90px; } }

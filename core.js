@@ -44,5 +44,10 @@ window.Q = (function () {
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const fmt = n => Math.round(n).toLocaleString('pl-PL');
 
-  return { modes, registerMode, h, mono, randInt, shuffle, pick, sleep, fmt };
+  // wspólna baza (cloud.js): obietnica z API albo null, gdy nie ma połączenia (max 10 s)
+  let cloudResolve;
+  const cloudReady = new Promise(r => { cloudResolve = r; });
+  setTimeout(() => cloudResolve(null), 10000);
+
+  return { cloudReady, _cloudResolve: v => cloudResolve(v), modes, registerMode, h, mono, randInt, shuffle, pick, sleep, fmt };
 })();

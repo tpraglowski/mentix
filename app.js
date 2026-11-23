@@ -119,10 +119,53 @@
       b.replaceChildren(h('span', { class: 'fav-icon' }, '⭐'));
       if (cls.includes('btn')) b.append(on ? ' W ulubionych' : ' Do ulubionych');
     };
-    b.onclick = e => { e.stopPropagation(); toggleFav(q.id); paint(); if (onChange) onChange(); };
+    b.onclick = e => { e.stopPropagation(); toggleFav(q.id); cacheFav(q); paint(); if (onChange) onChange(); };
     paint();
     return b;
   }
+
+  // ---------- wspólna baza: publiczne zestawy ----------
+  const newSetId = () => 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+  const isOwn = q => Q.quizzes.loadOwn().some(x => x.id === q.id);
+  let remoteSets = [];            // ostatnio pobrane publiczne zestawy z bazy
+  const FCACHE = 'qzl_fav_cache_v1';
+  function favCache() { try { const v = JSON.parse(localStorage.getItem(FCACHE) || '{}'); return v && typeof v === 'object' ? v : {}; } catch (e) { return {}; } }
+  function cacheFav(q) {
+    const c = favCache();
+    if (isFav(q.id) && q.remote) c[q.id] = q; else delete c[q.id];
+    try { localStorage.setItem(FCACHE, JSON.stringify(c)); } catch (e) {}
+  }
+  function notify(text, kind) {
+    let box = document.getElementById('notes');
+    if (!box) { box = h('div', { id: 'notes', class: 'notes' }); document.body.append(box); }
+    const n = h('div', { class: 'note ' + (kind || '') }, text);
+    box.append(n);
+    setTimeout(() => n.remove(), 3500);
+  }
+  // wysyła / usuwa zestaw w bazie zależnie od widoczności; zapamiętuje, czy się udało
+  async function syncSet(rec, quiet) {
+    const cloud = await Q.cloudReady;
+    const mark = ok => {
+      const own = Q.quizzes.loadOwn(); const x = own.find(o => o.id === rec.id);
+      if (x) { x.cloud = ok; Q.quizzes.saveOwn(own); }
+    };
+    if (!cloud) { if (rec.visibility === 'public') { mark(false); if (!quiet) notify('⚠️ Brak połączenia z bazą — zestaw zapisany tylko na tym urządzeniu.', 'bad'); } return false; }
+    try {
+      if (rec.visibility === 'public') { await cloud.publish(rec, me.name); mark(true); if (!quiet) notify('🌍 Zestaw opublikowany — widzą go wszyscy w Odkrywaj.', 'good'); }
+      else { await cloud.unpublish(rec.id); mark(false); }
+      return true;
+    } catch (e) {
+      console.warn('MENTIX sync:', e);
+      if (rec.visibility === 'public') mark(false);
+      if (!quiet) notify('⚠️ Nie udało się wysłać zestawu do bazy (' + (e.code || e.message) + '). Zapisany na tym urządzeniu.', 'bad');
+      return false;
+    }
+  }
+  // po starcie: dosyłamy publiczne zestawy, które jeszcze nie trafiły do bazy
+  Q.cloudReady.then(cloud => {
+    if (!cloud) return;
+    Q.quizzes.loadOwn().filter(x => x.visibility !== 'private' && !x.cloud).forEach(x => syncSet(x, true));
+  });
 
   function setCard(q, onFavChange) {
     return h('div', { class: 'set-card' },
@@ -130,8 +173,9 @@
         h('span', { class: 'set-emoji' }, q.emoji || '📝'),
         h('strong', { class: 'set-title' }, q.title),
         q.desc ? h('span', { class: 'set-desc' }, q.desc) : null,
-        h('span', { class: 'muted small' }, pytan(q.questions.length) + (q.builtin ? ' · wbudowany' : ' · twój'),
-          q.visibility === 'private' ? h('span', { class: 'badge' }, '🔒 Prywatny') : null)),
+        h('span', { class: 'muted small' }, pytan(q.questions.length) + (q.builtin ? ' · wbudowany' : q.remote ? ' · autor: ' + (q.author || 'anonim') : ' · twój'),
+          q.visibility === 'private' ? h('span', { class: 'badge' }, '🔒 Prywatny') : null,
+          !q.builtin && !q.remote && q.visibility !== 'private' && q.cloud === false ? h('span', { class: 'badge warn', title: 'Nie udało się wysłać do wspólnej bazy — spróbuję ponownie przy następnym wejściu' }, '⚠️ tylko lokalnie') : null)),
       favButton(q, 'fav', onFavChange),
       h('div', { class: 'set-actions' },
         btn('Hostuj', () => pickMode(q, 'host'), 'small'),
@@ -141,9 +185,25 @@
     h('div', { class: 'big-emoji' }, icon), h('p', {}, text), sub ? h('p', { class: 'muted' }, sub) : null, action);
 
   function discover() {
-    const all = Q.quizzes.all().filter(q => q.questions && q.questions.length && q.visibility !== 'private');
+    let all = [];
+    const local = () => Q.quizzes.all().filter(q => q.questions && q.questions.length && q.visibility !== 'private');
+    const merge = () => {
+      const l = local(); const ids = new Set(l.map(q => q.id));
+      all = l.concat(remoteSets.filter(r => !ids.has(r.id) && r.questions.length));
+    };
+    merge();
     const search = h('input', { class: 'search', type: 'search', placeholder: 'Szukaj zestawu…', autocomplete: 'off' });
     const grid = h('div', { class: 'set-grid' });
+    const status = h('p', { class: 'muted small cloud-status' }, '⏳ Ładuję publiczne zestawy…');
+    Q.cloudReady.then(cloud => cloud ? cloud.listPublic() : Promise.reject(new Error('offline'))).then(list => {
+      remoteSets = list;
+      if (!grid.isConnected) return;
+      merge(); draw();
+      status.textContent = '🌍 Publiczne zestawy wszystkich graczy: ' + list.length;
+    }).catch(e => {
+      console.warn('MENTIX listPublic:', e);
+      if (grid.isConnected) status.textContent = '⚠️ Nie udało się wczytać publicznych zestawów innych graczy (' + (e.code || e.message) + ').';
+    });
     const draw = () => {
       const t = search.value.trim().toLowerCase();
       const list = all.filter(q => !t || q.title.toLowerCase().includes(t));
@@ -154,13 +214,18 @@
     dash('odkrywaj',
       h('div', { class: 'page-head' }, h('h2', {}, 'Odkrywaj'), search),
       h('p', { class: 'muted' }, 'Wybierz zestaw pytań — zagraj solo albo zahostuj grę dla znajomych.'),
+      status,
       grid,
       h('p', { class: 'foot muted' }, 'Tryby gry: ', Q.modes.map(m => m.icon + ' ' + m.name).join(' · ')));
   }
 
   function favorites() {
     const f = favs();
-    const list = Q.quizzes.all().filter(q => f.includes(q.id) && q.questions && q.questions.length);
+    const local = Q.quizzes.all();
+    const ids = new Set(local.map(q => q.id));
+    const cache = favCache();
+    const list = local.concat(Object.values(cache).filter(q => !ids.has(q.id)))
+      .filter(q => f.includes(q.id) && q.questions && q.questions.length && (q.visibility !== 'private' || isOwn(q)));
     dash('ulubione',
       h('div', { class: 'page-head' }, h('h2', {}, 'Ulubione')),
       list.length
@@ -182,6 +247,7 @@
             btn('Usuń', () => {
               if (!confirm('Usunąć zestaw „' + q.title + '”?')) return;
               Q.quizzes.saveOwn(Q.quizzes.loadOwn().filter(x => x.id !== q.id));
+              if (q.visibility !== 'private') syncSet({ id: q.id, visibility: 'private' }, true);
               mySets();
             }, 'small danger')));
           return c;
@@ -200,12 +266,12 @@
         h('div', { class: 'grow' },
           h('h2', {}, q.title),
           q.desc ? h('p', { class: 'set-desc big' }, q.desc) : null,
-          h('p', { class: 'muted' }, pytan(q.questions.length) + (q.builtin ? ' · wbudowany' : ' · twój') + (q.visibility === 'private' ? ' · 🔒 prywatny' : ' · 🌍 publiczny')),
+          h('p', { class: 'muted' }, pytan(q.questions.length) + (q.builtin ? ' · wbudowany' : q.remote ? ' · autor: ' + (q.author || 'anonim') : ' · twój') + (q.visibility === 'private' ? ' · 🔒 prywatny' : ' · 🌍 publiczny')),
           h('div', { class: 'btn-row left tight' },
             btn('Hostuj', () => pickMode(q, 'host'), 'big'),
             btn('Solo', () => pickMode(q, 'solo'), 'big ghost'),
             favButton(q, 'btn ghost fav-btn'),
-            q.builtin ? btn('Kopiuj i edytuj', copy, 'ghost') : btn('Edytuj', () => editQuiz(q), 'ghost')))),
+            isOwn(q) ? btn('Edytuj', () => editQuiz(q), 'ghost') : btn('Kopiuj i edytuj', copy, 'ghost')))),
       h('ol', { class: 'q-preview' }, q.questions.map(x => {
         const t = Q.qtypes.typeOf(x);
         return h('li', {},
@@ -688,8 +754,9 @@
         const qs = (d.questions || []).map(Q.qtypes.clean).filter(x => x && typeof x === 'object');
         if (!qs.length) throw new Error('brak pytań');
         const own = Q.quizzes.loadOwn();
-        own.unshift({ id: 'q' + Date.now(), title: String(d.title || 'Zaimportowany zestaw').slice(0, 60), desc: String(d.desc || '').slice(0, 300), emoji: String(d.emoji || '📝').slice(0, 4), visibility: d.visibility === 'private' ? 'private' : 'public', questions: qs });
+        own.unshift({ id: newSetId(), title: String(d.title || 'Zaimportowany zestaw').slice(0, 60), desc: String(d.desc || '').slice(0, 300), emoji: String(d.emoji || '📝').slice(0, 4), visibility: d.visibility === 'private' ? 'private' : 'public', questions: qs });
         Q.quizzes.saveOwn(own); mySets();
+        syncSet(own[0]);
       }).catch(e => alert('To nie jest poprawny plik quizu (' + e.message + ').'));
     };
     inp.click();
@@ -803,10 +870,10 @@
         }
         if (!clean.length) { msg.textContent = 'Dodaj co najmniej jedno pytanie.'; return; }
         const own = Q.quizzes.loadOwn();
-        const rec = { id: quiz.id || 'q' + Date.now(), title: quiz.title, desc: quiz.desc, emoji: quiz.emoji, visibility: quiz.visibility, questions: clean };
+        const rec = { id: quiz.id || newSetId(), title: quiz.title, desc: quiz.desc, emoji: quiz.emoji, visibility: quiz.visibility, questions: clean };
         const idx = own.findIndex(x => x.id === rec.id);
         if (idx >= 0) own[idx] = rec; else own.unshift(rec);
-        if (Q.quizzes.saveOwn(own)) mySets();
+        if (Q.quizzes.saveOwn(own)) { mySets(); syncSet(rec); }
       }
       draw();
       dash(section,
