@@ -1,4 +1,4 @@
-// Quizolandia — wspólne narzędzia + rejestr trybów gry.
+// MENTIX — wspólne narzędzia + rejestr trybów gry.
 // Tryby gry (folder modes/) wywołują Q.registerMode({...}). Zobacz modes/_szablon.js.
 window.Q = (function () {
   'use strict';
@@ -25,13 +25,16 @@ window.Q = (function () {
     for (const c of kids) {
       if (c == null || c === false) continue;
       if (Array.isArray(c)) add(el, c);
-      else el.append(c instanceof Node ? c : document.createTextNode(String(c)));
+      else el.append(c instanceof Node ? c : document.createTextNode(mono(String(c))));
     }
   }
 
+  // ikonki zawsze jednokolorowe: znak U+FE0F wymusza kolorowe emoji — zamieniamy na U+FE0E (wersja tekstowa)
+  const mono = t => t.replace(/️/g, '︎');
+
   function registerMode(m) {
-    if (!m || !m.id || typeof m.start !== 'function') { console.error('Quizolandia: niepoprawny tryb gry', m); return; }
-    if (modes.some(x => x.id === m.id)) { console.warn('Quizolandia: tryb o id "' + m.id + '" już istnieje'); return; }
+    if (!m || !m.id || typeof m.start !== 'function') { console.error('MENTIX: niepoprawny tryb gry', m); return; }
+    if (modes.some(x => x.id === m.id)) { console.warn('MENTIX: tryb o id "' + m.id + '" już istnieje'); return; }
     modes.push(Object.assign({ icon: '🎲', unit: 'pkt', desc: '', name: m.id }, m));
   }
 
@@ -41,5 +44,5 @@ window.Q = (function () {
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const fmt = n => Math.round(n).toLocaleString('pl-PL');
 
-  return { modes, registerMode, h, randInt, shuffle, pick, sleep, fmt };
+  return { modes, registerMode, h, mono, randInt, shuffle, pick, sleep, fmt };
 })();

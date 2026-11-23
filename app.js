@@ -1,4 +1,4 @@
-// Quizolandia — ekrany, host / gracz (PeerJS), uruchamianie trybów gry.
+// MENTIX — ekrany, host / gracz (PeerJS), uruchamianie trybów gry.
 (function () {
   'use strict';
   const { h, shuffle, fmt } = Q;
@@ -10,6 +10,7 @@
   // ---------- ekrany ----------
   let screenCleanups = [];
   function screen(...nodes) {
+    document.body.classList.remove('dash');
     screenCleanups.forEach(f => { try { f(); } catch (e) { console.error(e); } });
     screenCleanups = [];
     app.replaceChildren(...nodes);
@@ -23,7 +24,7 @@
     if (session) { const s = session; session = null; try { s.dispose(); } catch (e) { console.error(e); } }
   }
 
-  document.getElementById('logo').onclick = e => { e.preventDefault(); home(); };
+  document.getElementById('logo').onclick = e => { e.preventDefault(); go('odkrywaj'); };
 
   const btn = (label, onclick, cls) => h('button', { class: 'btn ' + (cls || ''), onclick }, label);
   const back = fn => h('button', { class: 'back', onclick: fn }, '← Wróć');
@@ -59,46 +60,155 @@
   }
   function saveMe() { try { localStorage.setItem('qzl_me', JSON.stringify(me)); } catch (e) {} }
 
-  // ---------- strona główna ----------
-  function home() {
-    endSession();
+  // ---------- panel z menu (Graj / Odkrywaj / Kreator / Moje zestawy / Ulubione) ----------
+  const SECTIONS = [
+    { id: 'graj', label: 'Graj', icon: '🎮', fn: () => play() },
+    { id: 'odkrywaj', label: 'Odkrywaj', icon: '🧭', fn: () => discover() },
+    { id: 'kreator', label: 'Kreator zestawów', icon: '✏️', fn: () => editQuiz(null) },
+    { id: 'moje', label: 'Moje zestawy', icon: '🗂️', fn: () => mySets() },
+    { id: 'ulubione', label: 'Ulubione', icon: '⭐', fn: () => favorites() }
+  ];
+  let current = 'odkrywaj';
+  const side = document.getElementById('side');
+  side.replaceChildren(...SECTIONS.map(sec => h('a', {
+    href: '#' + sec.id, class: 'side-link', 'data-id': sec.id,
+    onclick: e => { e.preventDefault(); go(sec.id); }
+  }, h('span', { class: 'side-icon' }, sec.icon), h('span', { class: 'side-label' }, sec.label))));
+  function go(id) { endSession(); (SECTIONS.find(x => x.id === id) || SECTIONS[0]).fn(); }
+  function home() { go(current); }
+  function dash(id, ...nodes) {
+    screen(...nodes);
+    current = id;
+    document.body.classList.add('dash');
+    side.querySelectorAll('.side-link').forEach(a => a.classList.toggle('on', a.dataset.id === id));
+    if (location.hash !== '#' + id) history.replaceState(null, '', location.pathname + '#' + id);
+  }
+
+  // ---------- Graj: dołączanie do gry ----------
+  function play() {
     const pin = h('input', { class: 'pin-input', inputmode: 'numeric', maxlength: '7', placeholder: 'PIN gry', autocomplete: 'off' });
-    const go = () => { const v = pin.value.replace(/\D/g, ''); if (v.length !== 6) return shake(pin); joinScreen(v); };
-    pin.onkeydown = e => { if (e.key === 'Enter') go(); };
-    const tile = (icon, title, text, fn) => h('button', { class: 'tile', onclick: fn },
-      h('span', { class: 'tile-icon' }, icon), h('strong', {}, title), h('span', {}, text));
-    screen(
+    const join = () => { const v = pin.value.replace(/\D/g, ''); if (v.length !== 6) return shake(pin); joinScreen(v); };
+    pin.onkeydown = e => { if (e.key === 'Enter') join(); };
+    dash('graj',
       h('section', { class: 'hero' },
-        h('h1', {}, 'Ucz się ', h('span', { class: 'accent' }, 'grając'), '!'),
-        h('p', { class: 'lead' }, 'Quizy z trybami gry. Dołącz do gry kodem PIN albo zahostuj własną.'),
-        h('div', { class: 'join-card' }, pin, btn('Dołącz', go, 'big'))
-      ),
-      h('section', { class: 'tiles' },
-        tile('🎮', 'Hostuj grę', 'Wybierz quiz i tryb gry — gracze dołączają kodem PIN.', () => pickQuiz('host')),
-        tile('🧍', 'Graj solo', 'Potrenuj dowolny quiz w dowolnym trybie.', () => pickQuiz('solo')),
-        tile('✏️', 'Moje quizy', 'Twórz i edytuj własne zestawy pytań.', quizList)
-      ),
-      h('p', { class: 'foot muted' }, 'Tryby gry: ', Q.modes.map(m => m.icon + ' ' + m.name).join(' · '))
-    );
+        h('div', { class: 'big-emoji' }, '🎮'),
+        h('h1', {}, 'Dołącz do ', h('span', { class: 'accent' }, 'gry'), '!'),
+        h('p', { class: 'lead' }, 'Wpisz PIN, który pokazuje host — albo zeskanuj jego kod QR telefonem.'),
+        h('div', { class: 'join-card' }, pin, btn('Dołącz', join, 'big'))),
+      h('div', { class: 'play-hint' },
+        h('span', { class: 'side-icon' }, '🧭'),
+        h('span', {}, 'Chcesz sam poprowadzić grę? Wybierz zestaw w ', h('a', { href: '#odkrywaj', onclick: e => { e.preventDefault(); go('odkrywaj'); } }, 'Odkrywaj'), ' i kliknij „Hostuj”.')));
     setTimeout(() => pin.focus(), 50);
   }
 
-  // ---------- wybór quizu i trybu ----------
-  function pickQuiz(purpose) {
-    const quizzes = Q.quizzes.all().filter(q => q.questions && q.questions.length);
-    screen(
-      back(home),
-      h('h2', {}, purpose === 'host' ? '🎮 Hostuj grę — wybierz quiz' : '🧍 Graj solo — wybierz quiz'),
-      h('div', { class: 'cards' }, quizzes.map(q =>
-        h('button', { class: 'card', onclick: () => pickMode(q, purpose) },
-          h('span', { class: 'card-emoji' }, q.emoji || '📝'),
-          h('strong', {}, q.title),
-          h('span', { class: 'muted' }, pytan(q.questions.length) + (q.builtin ? ' · wbudowany' : ' · twój'))
-        ))),
-      h('p', { class: 'muted' }, 'Chcesz własny? ', h('a', { href: '#', onclick: e => { e.preventDefault(); editQuiz(null); } }, 'Stwórz nowy quiz'))
-    );
+  // ulubione (w tej przeglądarce)
+  const FKEY = 'qzl_favs_v1';
+  function favs() { try { const v = JSON.parse(localStorage.getItem(FKEY) || '[]'); return Array.isArray(v) ? v : []; } catch (e) { return []; } }
+  const isFav = id => favs().includes(id);
+  function toggleFav(id) {
+    const f = favs(); const i = f.indexOf(id);
+    if (i >= 0) f.splice(i, 1); else f.push(id);
+    try { localStorage.setItem(FKEY, JSON.stringify(f)); } catch (e) {}
+    return i < 0;
+  }
+  function favButton(q, cls, onChange) {
+    const b = h('button', { class: cls, title: 'Dodaj do ulubionych / usuń' });
+    const paint = () => {
+      const on = isFav(q.id);
+      b.classList.toggle('on', on);
+      b.replaceChildren(h('span', { class: 'fav-icon' }, '⭐'));
+      if (cls.includes('btn')) b.append(on ? ' W ulubionych' : ' Do ulubionych');
+    };
+    b.onclick = e => { e.stopPropagation(); toggleFav(q.id); paint(); if (onChange) onChange(); };
+    paint();
+    return b;
   }
 
+  function setCard(q, onFavChange) {
+    return h('div', { class: 'set-card' },
+      h('button', { class: 'set-main', onclick: () => setDetail(q) },
+        h('span', { class: 'set-emoji' }, q.emoji || '📝'),
+        h('strong', { class: 'set-title' }, q.title),
+        h('span', { class: 'muted small' }, pytan(q.questions.length) + (q.builtin ? ' · wbudowany' : ' · twój'))),
+      favButton(q, 'fav', onFavChange),
+      h('div', { class: 'set-actions' },
+        btn('Hostuj', () => pickMode(q, 'host'), 'small'),
+        btn('Solo', () => pickMode(q, 'solo'), 'small ghost')));
+  }
+  const emptyBox = (icon, text, sub, action) => h('div', { class: 'empty' },
+    h('div', { class: 'big-emoji' }, icon), h('p', {}, text), sub ? h('p', { class: 'muted' }, sub) : null, action);
+
+  function discover() {
+    const all = Q.quizzes.all().filter(q => q.questions && q.questions.length);
+    const search = h('input', { class: 'search', type: 'search', placeholder: 'Szukaj zestawu…', autocomplete: 'off' });
+    const grid = h('div', { class: 'set-grid' });
+    const draw = () => {
+      const t = search.value.trim().toLowerCase();
+      const list = all.filter(q => !t || q.title.toLowerCase().includes(t));
+      grid.replaceChildren(...(list.length ? list.map(q => setCard(q)) : [h('p', { class: 'muted' }, 'Nic nie znaleziono.')]));
+    };
+    search.oninput = draw;
+    draw();
+    dash('odkrywaj',
+      h('div', { class: 'page-head' }, h('h2', {}, 'Odkrywaj'), search),
+      h('p', { class: 'muted' }, 'Wybierz zestaw pytań — zagraj solo albo zahostuj grę dla znajomych.'),
+      grid,
+      h('p', { class: 'foot muted' }, 'Tryby gry: ', Q.modes.map(m => m.icon + ' ' + m.name).join(' · ')));
+  }
+
+  function favorites() {
+    const f = favs();
+    const list = Q.quizzes.all().filter(q => f.includes(q.id) && q.questions && q.questions.length);
+    dash('ulubione',
+      h('div', { class: 'page-head' }, h('h2', {}, 'Ulubione')),
+      list.length
+        ? h('div', { class: 'set-grid' }, list.map(q => setCard(q, favorites)))
+        : emptyBox('⭐', 'Nie masz jeszcze ulubionych zestawów.', 'Kliknij gwiazdkę przy zestawie, żeby go tu dodać.', btn('Przejdź do Odkrywaj', () => go('odkrywaj'))));
+  }
+
+  function mySets() {
+    const own = Q.quizzes.loadOwn();
+    dash('moje',
+      h('div', { class: 'page-head' }, h('h2', {}, 'Moje zestawy'),
+        h('div', { class: 'btn-row left tight' }, btn('+ Nowy zestaw', () => go('kreator')), btn('Importuj (JSON)', importQuiz, 'ghost'))),
+      own.length
+        ? h('div', { class: 'set-grid' }, own.map(q => {
+          const c = setCard(q);
+          c.append(h('div', { class: 'set-tools' },
+            btn('Edytuj', () => editQuiz(q), 'small ghost'),
+            btn('Eksport', () => exportQuiz(q), 'small ghost'),
+            btn('Usuń', () => {
+              if (!confirm('Usunąć zestaw „' + q.title + '”?')) return;
+              Q.quizzes.saveOwn(Q.quizzes.loadOwn().filter(x => x.id !== q.id));
+              mySets();
+            }, 'small danger')));
+          return c;
+        }))
+        : emptyBox('🗂️', 'Nie masz jeszcze własnych zestawów.', null, btn('Stwórz pierwszy zestaw', () => go('kreator'))),
+      h('p', { class: 'muted small' }, 'Zestawy zapisują się w tej przeglądarce. Żeby przenieść zestaw na inny komputer, użyj Eksport / Importuj.'));
+  }
+
+  function setDetail(q) {
+    const backTo = current;
+    const copy = () => editQuiz(Object.assign(JSON.parse(JSON.stringify(q)), { id: null, builtin: false, title: q.title + ' (kopia)' }));
+    dash(current,
+      back(() => go(backTo)),
+      h('div', { class: 'set-hero' },
+        h('span', { class: 'set-emoji big' }, q.emoji || '📝'),
+        h('div', { class: 'grow' },
+          h('h2', {}, q.title),
+          h('p', { class: 'muted' }, pytan(q.questions.length) + (q.builtin ? ' · wbudowany' : ' · twój')),
+          h('div', { class: 'btn-row left tight' },
+            btn('Hostuj', () => pickMode(q, 'host'), 'big'),
+            btn('Solo', () => pickMode(q, 'solo'), 'big ghost'),
+            favButton(q, 'btn ghost fav-btn'),
+            q.builtin ? btn('Kopiuj i edytuj', copy, 'ghost') : btn('Edytuj', () => editQuiz(q), 'ghost')))),
+      h('ol', { class: 'q-preview' }, q.questions.map(x => h('li', {},
+        h('b', {}, x.q),
+        h('div', { class: 'q-prev-ans' }, x.a.map((a, i) => String(a || '').trim() ? h('span', { class: i === x.c ? 'right' : '' }, a) : null))))));
+  }
+
+  // ---------- wybór trybu ----------
   function pickMode(quiz, purpose) {
     let dur = Number(localStorage.getItem('qzl_dur')) || 3;
     const chips = h('div', { class: 'chips' });
@@ -113,7 +223,7 @@
       ? hostGame(quiz, mode, dur * 60000)
       : playSolo(quiz, mode, dur * 60000);
     screen(
-      back(() => pickQuiz(purpose)),
+      back(home),
       h('h2', {}, (quiz.emoji || '📝') + ' ' + quiz.title + ' — wybierz tryb gry'),
       h('div', { class: 'row' }, h('span', { class: 'label' }, 'Czas gry:'), chips),
       Q.modes.length
@@ -558,31 +668,7 @@
     }
   }
 
-  // ---------- edytor quizów ----------
-  function quizList() {
-    endSession();
-    const own = Q.quizzes.loadOwn();
-    screen(
-      back(home),
-      h('h2', {}, '✏️ Moje quizy'),
-      h('div', { class: 'btn-row left' }, btn('+ Nowy quiz', () => editQuiz(null), 'big'), btn('📥 Importuj (JSON)', importQuiz, 'ghost')),
-      own.length ? h('div', { class: 'quiz-list' }, own.map((q, i) => h('div', { class: 'quiz-row' },
-        h('span', { class: 'card-emoji' }, q.emoji || '📝'),
-        h('div', { class: 'grow' }, h('strong', {}, q.title), h('div', { class: 'muted' }, pytan(q.questions.length))),
-        btn('Edytuj', () => editQuiz(q), 'small'),
-        btn('Eksport', () => exportQuiz(q), 'small ghost'),
-        btn('Usuń', () => { if (confirm('Usunąć quiz „' + q.title + '”?')) { own.splice(i, 1); Q.quizzes.saveOwn(own); quizList(); } }, 'small danger')
-      ))) : h('p', { class: 'muted' }, 'Nie masz jeszcze własnych quizów.'),
-      h('h3', {}, 'Wbudowane (możesz skopiować i zmienić)'),
-      h('div', { class: 'quiz-list' }, Q.quizzes.builtin.map(q => h('div', { class: 'quiz-row' },
-        h('span', { class: 'card-emoji' }, q.emoji),
-        h('div', { class: 'grow' }, h('strong', {}, q.title), h('div', { class: 'muted' }, pytan(q.questions.length))),
-        btn('Kopiuj', () => editQuiz(Object.assign(JSON.parse(JSON.stringify(q)), { id: null, builtin: false, title: q.title + ' (kopia)' })), 'small ghost')
-      ))),
-      h('p', { class: 'muted small' }, 'Quizy zapisują się w tej przeglądarce. Żeby przenieść quiz na inny komputer, użyj Eksport / Importuj.')
-    );
-  }
-
+  // ---------- eksport / import / kreator zestawów ----------
   function exportQuiz(q) {
     const data = JSON.stringify({ title: q.title, emoji: q.emoji, questions: q.questions }, null, 2);
     const a = h('a', { href: URL.createObjectURL(new Blob([data], { type: 'application/json' })), download: (q.title || 'quiz').replace(/[^\wąćęłńóśźżĄĆĘŁŃÓŚŹŻ -]/g, '') + '.json' });
@@ -598,7 +684,7 @@
         if (!qs.length) throw new Error('brak pytań');
         const own = Q.quizzes.loadOwn();
         own.unshift({ id: 'q' + Date.now(), title: String(d.title || 'Zaimportowany quiz').slice(0, 60), emoji: String(d.emoji || '📝').slice(0, 4), questions: qs });
-        Q.quizzes.saveOwn(own); quizList();
+        Q.quizzes.saveOwn(own); mySets();
       }).catch(e => alert('To nie jest poprawny plik quizu (' + e.message + ').'));
     };
     inp.click();
@@ -607,7 +693,7 @@
   function editQuiz(orig) {
     const quiz = orig ? JSON.parse(JSON.stringify(orig)) : { id: null, title: '', emoji: '📝', questions: [] };
     if (!quiz.questions.length) quiz.questions.push({ q: '', a: ['', '', '', ''], c: 0 });
-    const title = h('input', { class: 'title-input', maxlength: '60', placeholder: 'Nazwa quizu, np. Ułamki', value: quiz.title });
+    const title = h('input', { class: 'title-input', maxlength: '60', placeholder: 'Nazwa zestawu, np. Ułamki', value: quiz.title });
     const emoji = h('input', { class: 'emoji-input', maxlength: '4', value: quiz.emoji || '📝', title: 'Emoji quizu' });
     const list = h('div', { class: 'q-edit-list' });
     const msg = h('p', { class: 'error' });
@@ -633,7 +719,7 @@
 
     function save() {
       sync();
-      if (!quiz.title) { msg.textContent = 'Podaj nazwę quizu.'; return shake(title); }
+      if (!quiz.title) { msg.textContent = 'Podaj nazwę zestawu.'; return shake(title); }
       const clean = [];
       for (let i = 0; i < quiz.questions.length; i++) {
         const q = quiz.questions[i];
@@ -649,17 +735,18 @@
       const rec = { id: quiz.id || 'q' + Date.now(), title: quiz.title, emoji: quiz.emoji, questions: clean };
       const idx = own.findIndex(x => x.id === rec.id);
       if (idx >= 0) own[idx] = rec; else own.unshift(rec);
-      if (Q.quizzes.saveOwn(own)) quizList();
+      if (Q.quizzes.saveOwn(own)) mySets();
     }
 
-    screen(
-      back(() => { if (confirm('Wyjść bez zapisywania?')) quizList(); }),
-      h('h2', {}, orig && orig.id ? 'Edytuj quiz' : 'Nowy quiz'),
+    const editing = !!(orig && orig.id);
+    dash(editing ? 'moje' : 'kreator',
+      editing ? back(() => { if (confirm('Wyjść bez zapisywania?')) mySets(); }) : null,
+      h('h2', {}, editing ? 'Edytuj zestaw' : 'Kreator zestawów'),
       h('div', { class: 'row' }, emoji, title),
       list,
       h('div', { class: 'btn-row left' },
         btn('+ Dodaj pytanie', () => { quiz.questions.push({ q: '', a: ['', '', '', ''], c: 0 }); draw(); setTimeout(() => { const t = list.lastChild.querySelector('textarea'); t && t.focus(); }, 0); }, 'ghost'),
-        btn('💾 Zapisz quiz', save, 'big')),
+        btn('💾 Zapisz zestaw', save, 'big')),
       msg,
       h('p', { class: 'muted small' }, 'Kółko przy odpowiedzi = poprawna odpowiedź.')
     );
@@ -667,6 +754,7 @@
 
   // start: ?pin=123456 w adresie od razu otwiera dołączanie
   const urlPin = (new URLSearchParams(location.search).get('pin') || '').replace(/\D/g, '');
+  const startHash = location.hash.slice(1);
   if (location.search) history.replaceState(null, '', location.pathname);
-  if (urlPin.length === 6) joinScreen(urlPin); else home();
+  if (urlPin.length === 6) joinScreen(urlPin); else go(SECTIONS.some(x => x.id === startHash) ? startHash : 'odkrywaj');
 })();

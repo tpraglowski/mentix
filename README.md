@@ -1,4 +1,4 @@
-# 🍊 Quizolandia
+# MENTIX
 
 Strona z quizami i trybami gry. Host wybiera quiz i tryb, gracze dołączają kodem PIN
 (połączenie przeglądarka–przeglądarka przez PeerJS / WebRTC, bez własnego serwera).
