@@ -38,6 +38,20 @@
       })()
     },
     {
+      id: 'b-mix', emoji: '🧪', title: 'Pokaz typów pytań', builtin: true,
+      desc: 'Po trochu z każdego typu: wybór, kilka odpowiedzi, prawda/fałsz, wpisywanie i kolejność.',
+      questions: [
+        { type: 'choice', q: 'Ile dni ma tydzień?', a: ['5', '6', '7', '8'], c: 2 },
+        { type: 'multi', q: 'Które z tych zwierząt to ssaki?', a: ['Delfin', 'Rekin', 'Nietoperz', 'Pingwin'], cs: [0, 2] },
+        { type: 'tf', q: 'Słońce jest gwiazdą.', c: 0 },
+        { type: 'tf', q: 'Pająk ma 6 nóg.', c: 1 },
+        { type: 'input', q: 'Jak nazywa się stolica Polski?', accept: ['Warszawa'] },
+        { type: 'input', q: 'Ile to 12 × 12?', accept: ['144'] },
+        { type: 'order', q: 'Ułóż planety od najbliższej Słońcu:', items: ['Merkury', 'Wenus', 'Ziemia', 'Mars'] },
+        { type: 'order', q: 'Ułóż liczby od najmniejszej:', items: ['0,05', '0,5', '5', '50'] }
+      ]
+    },
+    {
       id: 'b-ogolna', emoji: '🧠', title: 'Wiedza ogólna', builtin: true,
       questions: [
         { q: 'Ile nóg ma pająk?', a: ['6', '8', '10', '4'], c: 1 },

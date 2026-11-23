@@ -13,7 +13,7 @@
     document.body.classList.remove('dash');
     screenCleanups.forEach(f => { try { f(); } catch (e) { console.error(e); } });
     screenCleanups = [];
-    app.replaceChildren(...nodes);
+    app.replaceChildren(...nodes.filter(n => n != null && n !== false));
     window.scrollTo(0, 0);
   }
   const onLeave = fn => screenCleanups.push(fn);
@@ -129,7 +129,9 @@
       h('button', { class: 'set-main', onclick: () => setDetail(q) },
         h('span', { class: 'set-emoji' }, q.emoji || '📝'),
         h('strong', { class: 'set-title' }, q.title),
-        h('span', { class: 'muted small' }, pytan(q.questions.length) + (q.builtin ? ' · wbudowany' : ' · twój'))),
+        q.desc ? h('span', { class: 'set-desc' }, q.desc) : null,
+        h('span', { class: 'muted small' }, pytan(q.questions.length) + (q.builtin ? ' · wbudowany' : ' · twój'),
+          q.visibility === 'private' ? h('span', { class: 'badge' }, '🔒 Prywatny') : null)),
       favButton(q, 'fav', onFavChange),
       h('div', { class: 'set-actions' },
         btn('Hostuj', () => pickMode(q, 'host'), 'small'),
@@ -139,7 +141,7 @@
     h('div', { class: 'big-emoji' }, icon), h('p', {}, text), sub ? h('p', { class: 'muted' }, sub) : null, action);
 
   function discover() {
-    const all = Q.quizzes.all().filter(q => q.questions && q.questions.length);
+    const all = Q.quizzes.all().filter(q => q.questions && q.questions.length && q.visibility !== 'private');
     const search = h('input', { class: 'search', type: 'search', placeholder: 'Szukaj zestawu…', autocomplete: 'off' });
     const grid = h('div', { class: 'set-grid' });
     const draw = () => {
@@ -197,15 +199,20 @@
         h('span', { class: 'set-emoji big' }, q.emoji || '📝'),
         h('div', { class: 'grow' },
           h('h2', {}, q.title),
-          h('p', { class: 'muted' }, pytan(q.questions.length) + (q.builtin ? ' · wbudowany' : ' · twój')),
+          q.desc ? h('p', { class: 'set-desc big' }, q.desc) : null,
+          h('p', { class: 'muted' }, pytan(q.questions.length) + (q.builtin ? ' · wbudowany' : ' · twój') + (q.visibility === 'private' ? ' · 🔒 prywatny' : ' · 🌍 publiczny')),
           h('div', { class: 'btn-row left tight' },
             btn('Hostuj', () => pickMode(q, 'host'), 'big'),
             btn('Solo', () => pickMode(q, 'solo'), 'big ghost'),
             favButton(q, 'btn ghost fav-btn'),
             q.builtin ? btn('Kopiuj i edytuj', copy, 'ghost') : btn('Edytuj', () => editQuiz(q), 'ghost')))),
-      h('ol', { class: 'q-preview' }, q.questions.map(x => h('li', {},
-        h('b', {}, x.q),
-        h('div', { class: 'q-prev-ans' }, x.a.map((a, i) => String(a || '').trim() ? h('span', { class: i === x.c ? 'right' : '' }, a) : null))))));
+      h('ol', { class: 'q-preview' }, q.questions.map(x => {
+        const t = Q.qtypes.typeOf(x);
+        return h('li', {},
+          h('div', { class: 'q-prev-type' }, t.icon + ' ' + t.name),
+          h('b', {}, x.q),
+          h('div', { class: 'q-prev-ans' }, t.preview(x)));
+      })));
   }
 
   // ---------- wybór trybu ----------
@@ -281,30 +288,28 @@
       if (ended) return new Promise(() => {});
       return new Promise(resolve => {
         const q = nextQ();
+        const type = Q.qtypes.typeOf(q);
         const t0 = performance.now();
-        const order = shuffle(q.a.map((_, i) => i).filter(i => String(q.a[i] || '').trim()));
-        const grid = h('div', { class: 'q-answers n' + order.length });
-        const card = h('div', { class: 'q-card' }, h('div', { class: 'q-text' }, q.q), grid);
+        const card = h('div', { class: 'q-card' },
+          type.id !== 'choice' ? h('div', { class: 'q-type' }, type.icon + ' ' + type.name) : null,
+          h('div', { class: 'q-text' }, q.q));
         const ov = h('div', { class: 'q-overlay' }, card);
         let done = false;
-        const choose = k => {
-          if (done || ended) return;
-          done = true;
-          document.removeEventListener('keydown', keyHandler);
-          const ai = order[k];
-          const correct = ai === q.c;
-          const timeMs = performance.now() - t0;
-          grid.classList.add('answered');
-          grid.children[k].classList.add(correct ? 'right' : 'wrong');
-          const ck = order.indexOf(q.c);
-          if (!correct && ck >= 0) grid.children[ck].classList.add('right');
-          card.append(h('div', { class: 'q-feedback ' + (correct ? 'ok' : 'bad') },
-            correct ? '✔ Dobrze!' : '✘ Źle! Poprawna odpowiedź: ' + q.a[q.c]));
-          setTimeout(() => { ov.remove(); if (!ended) resolve({ correct, timeMs, question: q }); }, correct ? 650 : 1700);
+        const api = {
+          isDone: () => done || ended,
+          lock: () => { if (done || ended) return false; done = true; document.removeEventListener('keydown', keyHandler); return true; },
+          done: correct => {
+            const timeMs = performance.now() - t0;
+            card.append(h('div', { class: 'q-feedback ' + (correct ? 'ok' : 'bad') },
+              correct ? '✔ Dobrze!' : '✘ Źle! Poprawna odpowiedź: ' + type.answer(q)));
+            setTimeout(() => { ov.remove(); if (!ended) resolve({ correct, timeMs, question: q }); }, correct ? 650 : (type.id === 'order' ? 2600 : 1800));
+          }
         };
-        order.forEach((ai, k) => grid.append(h('button', { class: 'q-ans c' + k, onclick: () => choose(k) },
-          h('span', { class: 'q-key' }, String(k + 1)), q.a[ai])));
-        keyHandler = e => { const k = Number(e.key) - 1; if (k >= 0 && k < order.length) choose(k); };
+        let r;
+        try { r = type.play(q, api); }
+        catch (e) { console.error(e); r = { el: h('p', { class: 'error' }, 'Błąd w pytaniu.') }; setTimeout(() => { if (api.lock()) api.done(false); }, 800); }
+        card.append(r.el);
+        keyHandler = e => { if (r.key && !(e.target && /INPUT|TEXTAREA/.test(e.target.tagName))) r.key(e); };
         document.addEventListener('keydown', keyHandler);
         root.append(ov);
       });
@@ -670,7 +675,7 @@
 
   // ---------- eksport / import / kreator zestawów ----------
   function exportQuiz(q) {
-    const data = JSON.stringify({ title: q.title, emoji: q.emoji, questions: q.questions }, null, 2);
+    const data = JSON.stringify({ title: q.title, desc: q.desc || '', emoji: q.emoji, visibility: q.visibility || 'public', questions: q.questions }, null, 2);
     const a = h('a', { href: URL.createObjectURL(new Blob([data], { type: 'application/json' })), download: (q.title || 'quiz').replace(/[^\wąćęłńóśźżĄĆĘŁŃÓŚŹŻ -]/g, '') + '.json' });
     document.body.append(a); a.click(); a.remove();
   }
@@ -680,76 +685,148 @@
       const f = inp.files[0]; if (!f) return;
       f.text().then(txt => {
         const d = JSON.parse(txt);
-        const qs = (d.questions || []).filter(x => x && x.q && Array.isArray(x.a)).map(x => ({ q: String(x.q), a: x.a.slice(0, 4).map(String), c: Math.min(3, Math.max(0, Number(x.c) || 0)) }));
+        const qs = (d.questions || []).map(Q.qtypes.clean).filter(x => x && typeof x === 'object');
         if (!qs.length) throw new Error('brak pytań');
         const own = Q.quizzes.loadOwn();
-        own.unshift({ id: 'q' + Date.now(), title: String(d.title || 'Zaimportowany quiz').slice(0, 60), emoji: String(d.emoji || '📝').slice(0, 4), questions: qs });
+        own.unshift({ id: 'q' + Date.now(), title: String(d.title || 'Zaimportowany zestaw').slice(0, 60), desc: String(d.desc || '').slice(0, 300), emoji: String(d.emoji || '📝').slice(0, 4), visibility: d.visibility === 'private' ? 'private' : 'public', questions: qs });
         Q.quizzes.saveOwn(own); mySets();
       }).catch(e => alert('To nie jest poprawny plik quizu (' + e.message + ').'));
     };
     inp.click();
   }
 
+  const COVER_ICONS = ['📝', '🧠', '🌍', '✖️', '➗', '📐', '🔬', '🧪', '📚', '🎨', '🎵', '⚽', '🏰', '🐾', '💻', '🚀', '🗺️', '🧮', '🌱', '⭐'];
+
   function editQuiz(orig) {
-    const quiz = orig ? JSON.parse(JSON.stringify(orig)) : { id: null, title: '', emoji: '📝', questions: [] };
-    if (!quiz.questions.length) quiz.questions.push({ q: '', a: ['', '', '', ''], c: 0 });
-    const title = h('input', { class: 'title-input', maxlength: '60', placeholder: 'Nazwa zestawu, np. Ułamki', value: quiz.title });
-    const emoji = h('input', { class: 'emoji-input', maxlength: '4', value: quiz.emoji || '📝', title: 'Emoji quizu' });
-    const list = h('div', { class: 'q-edit-list' });
-    const msg = h('p', { class: 'error' });
-
-    function sync() {
-      quiz.title = title.value.trim();
-      quiz.emoji = emoji.value.trim() || '📝';
-    }
-    function draw() {
-      list.replaceChildren(...quiz.questions.map((q, i) => {
-        const group = 'c' + i + '_' + Math.random().toString(36).slice(2, 7);
-        return h('div', { class: 'q-edit' },
-          h('div', { class: 'q-edit-head' }, h('b', {}, 'Pytanie ' + (i + 1)),
-            quiz.questions.length > 1 ? h('button', { class: 'x', title: 'Usuń pytanie', onclick: () => { quiz.questions.splice(i, 1); draw(); } }, '🗑') : null),
-          h('textarea', { rows: '2', placeholder: 'Treść pytania', value: q.q, oninput: e => { q.q = e.target.value; } }),
-          h('div', { class: 'a-edit-grid' }, [0, 1, 2, 3].map(k => h('label', { class: 'a-edit c' + k + (q.c === k ? ' correct' : '') },
-            h('input', { type: 'radio', name: group, checked: q.c === k, title: 'Poprawna odpowiedź', onchange: () => { q.c = k; draw(); } }),
-            h('input', { type: 'text', maxlength: '80', placeholder: k < 2 ? 'Odpowiedź ' + (k + 1) : 'Odpowiedź ' + (k + 1) + ' (opcjonalna)', value: q.a[k] || '', oninput: e => { q.a[k] = e.target.value; } })
-          ))));
-      }));
-    }
-    draw();
-
-    function save() {
-      sync();
-      if (!quiz.title) { msg.textContent = 'Podaj nazwę zestawu.'; return shake(title); }
-      const clean = [];
-      for (let i = 0; i < quiz.questions.length; i++) {
-        const q = quiz.questions[i];
-        const a = [0, 1, 2, 3].map(k => String(q.a[k] || '').trim());
-        if (!q.q.trim() && !a.some(Boolean)) continue; // puste pytanie — pomiń
-        if (!q.q.trim()) { msg.textContent = 'Pytanie ' + (i + 1) + ' nie ma treści.'; return; }
-        if (a.filter(Boolean).length < 2) { msg.textContent = 'Pytanie ' + (i + 1) + ' musi mieć co najmniej 2 odpowiedzi.'; return; }
-        if (!a[q.c]) { msg.textContent = 'W pytaniu ' + (i + 1) + ' zaznaczona poprawna odpowiedź jest pusta.'; return; }
-        clean.push({ q: q.q.trim(), a, c: q.c });
-      }
-      if (!clean.length) { msg.textContent = 'Dodaj co najmniej jedno pytanie.'; return; }
-      const own = Q.quizzes.loadOwn();
-      const rec = { id: quiz.id || 'q' + Date.now(), title: quiz.title, emoji: quiz.emoji, questions: clean };
-      const idx = own.findIndex(x => x.id === rec.id);
-      if (idx >= 0) own[idx] = rec; else own.unshift(rec);
-      if (Q.quizzes.saveOwn(own)) mySets();
-    }
-
     const editing = !!(orig && orig.id);
-    dash(editing ? 'moje' : 'kreator',
-      editing ? back(() => { if (confirm('Wyjść bez zapisywania?')) mySets(); }) : null,
-      h('h2', {}, editing ? 'Edytuj zestaw' : 'Kreator zestawów'),
-      h('div', { class: 'row' }, emoji, title),
-      list,
-      h('div', { class: 'btn-row left' },
-        btn('+ Dodaj pytanie', () => { quiz.questions.push({ q: '', a: ['', '', '', ''], c: 0 }); draw(); setTimeout(() => { const t = list.lastChild.querySelector('textarea'); t && t.focus(); }, 0); }, 'ghost'),
-        btn('💾 Zapisz zestaw', save, 'big')),
-      msg,
-      h('p', { class: 'muted small' }, 'Kółko przy odpowiedzi = poprawna odpowiedź.')
-    );
+    const quiz = orig ? JSON.parse(JSON.stringify(orig)) : { id: null, title: '', desc: '', emoji: '📝', visibility: 'public', questions: [] };
+    if (quiz.visibility !== 'private') quiz.visibility = 'public';
+    if (quiz.desc == null) quiz.desc = '';
+    quiz.questions = (quiz.questions || []).map(q => Object.assign({ type: 'choice' }, q));
+    delete quiz.builtin;
+    const section = editing ? 'moje' : 'kreator';
+    const leave = () => { if (confirm('Wyjść bez zapisywania?')) mySets(); };
+    const steps = n => h('div', { class: 'steps' },
+      h('span', { class: 'step ' + (n === 1 ? 'on' : 'done') }, h('b', {}, '1'), ' Szczegóły'),
+      h('span', { class: 'step-line' }),
+      h('span', { class: 'step' + (n === 2 ? ' on' : '') }, h('b', {}, '2'), ' Pytania'));
+
+    if (editing) stepQuestions(); else stepDetails();
+
+    // ----- krok 1: nazwa, opis, ikonka, widoczność -----
+    function stepDetails() {
+      const title = h('input', { class: 'title-input', maxlength: '60', placeholder: 'np. Ułamki — klasa 5', value: quiz.title });
+      const desc = h('textarea', { class: 'desc-input', rows: '3', maxlength: '300', placeholder: 'O czym jest ten zestaw? (opcjonalnie)', value: quiz.desc });
+      const iconPrev = h('div', { class: 'cover-prev' }, quiz.emoji);
+      const icons = h('div', { class: 'cover-icons' });
+      const drawIcons = () => icons.replaceChildren(...COVER_ICONS.map(ic => h('button', {
+        class: 'cover-ic' + (ic === quiz.emoji ? ' on' : ''),
+        onclick: () => { quiz.emoji = ic; iconPrev.textContent = Q.mono(ic); drawIcons(); }
+      }, ic)));
+      drawIcons();
+      const vis = h('div', { class: 'vis-opts' });
+      const visOpt = (v, ic, name, txt) => h('button', {
+        class: 'vis-opt' + (quiz.visibility === v ? ' on' : ''),
+        onclick: () => { quiz.visibility = v; drawVis(); }
+      }, h('span', { class: 'vis-ic' }, ic), h('strong', {}, name), h('span', { class: 'muted small' }, txt));
+      const drawVis = () => vis.replaceChildren(
+        visOpt('public', '🌍', 'Publiczny', 'Widoczny w Odkrywaj.'),
+        visOpt('private', '🔒', 'Prywatny', 'Tylko w Moich zestawach — nadal możesz go hostować.'));
+      drawVis();
+      const msg = h('p', { class: 'error' });
+      const keep = () => { quiz.title = title.value.trim(); quiz.desc = desc.value.trim(); };
+      const next = () => {
+        keep();
+        if (!quiz.title) { msg.textContent = 'Podaj nazwę zestawu.'; return shake(title); }
+        stepQuestions();
+      };
+      title.oninput = () => { msg.textContent = ''; };
+      title.onkeydown = e => { if (e.key === 'Enter') next(); };
+      dash(section,
+        editing ? back(leave) : null,
+        h('h2', {}, editing ? 'Edytuj zestaw' : 'Kreator zestawów'),
+        steps(1),
+        h('div', { class: 'creator-card' },
+          h('div', { class: 'creator-grid' },
+            h('div', { class: 'creator-main' },
+              h('label', { class: 'field' }, h('span', { class: 'label' }, 'Nazwa zestawu'), title),
+              h('label', { class: 'field' }, h('span', { class: 'label' }, 'Opis'), desc),
+              h('div', { class: 'field' }, h('span', { class: 'label' }, 'Widoczność'), vis)),
+            h('div', { class: 'field creator-side' }, h('span', { class: 'label' }, 'Ikonka zestawu'), iconPrev, icons))),
+        msg,
+        h('div', { class: 'btn-row left' }, btn('Dalej: pytania →', next, 'big')));
+      setTimeout(() => title.focus(), 50);
+    }
+
+    // ----- krok 2: pytania różnych typów -----
+    function stepQuestions() {
+      const list = h('div', { class: 'q-edit-list' });
+      const msg = h('p', { class: 'error' });
+      const swap = (a, b) => { const qs = quiz.questions; [qs[a], qs[b]] = [qs[b], qs[a]]; draw(); };
+      function draw() {
+        list.replaceChildren(...(quiz.questions.length ? quiz.questions.map((q, i) => {
+          const type = Q.qtypes.typeOf(q);
+          const sel = h('select', { class: 'type-select', title: 'Typ pytania', onchange: e => { quiz.questions[i] = Q.qtypes.convert(q, e.target.value); draw(); } },
+            Q.qtypes.list.map(t => h('option', { value: t.id, selected: t.id === type.id }, t.name)));
+          return h('div', { class: 'q-edit' },
+            h('div', { class: 'q-edit-head' },
+              h('b', { class: 'q-no' }, i + 1),
+              h('span', { class: 'type-ic' }, type.icon), sel,
+              h('span', { class: 'grow' }),
+              h('button', { class: 'mini', title: 'W górę', disabled: i === 0, onclick: () => swap(i, i - 1) }, '↑'),
+              h('button', { class: 'mini', title: 'W dół', disabled: i === quiz.questions.length - 1, onclick: () => swap(i, i + 1) }, '↓'),
+              h('button', { class: 'mini', title: 'Duplikuj', onclick: () => { quiz.questions.splice(i + 1, 0, JSON.parse(JSON.stringify(q))); draw(); } }, '⧉'),
+              h('button', { class: 'mini danger', title: 'Usuń pytanie', onclick: () => {
+                if (Q.qtypes.isEmpty(q) || confirm('Usunąć pytanie ' + (i + 1) + '?')) { quiz.questions.splice(i, 1); draw(); }
+              } }, '🗑')),
+            h('textarea', { rows: '2', maxlength: '200', placeholder: type.id === 'tf' ? 'Zdanie do oceny, np. „Wieloryb to ryba.”' : 'Treść pytania', value: q.q, oninput: e => { q.q = e.target.value; } }),
+            type.edit(q, draw));
+        }) : [h('div', { class: 'empty' }, h('p', {}, 'Nie ma jeszcze pytań.'), h('p', { class: 'muted' }, 'Wybierz poniżej typ pierwszego pytania.'))]));
+      }
+      const addQ = id => {
+        quiz.questions.push(Q.qtypes.get(id).blank());
+        draw();
+        setTimeout(() => { const t = list.lastChild && list.lastChild.querySelector('textarea'); if (t) { t.focus(); t.scrollIntoView({ block: 'center', behavior: 'smooth' }); } }, 0);
+      };
+      function save() {
+        const clean = [];
+        for (let i = 0; i < quiz.questions.length; i++) {
+          const q = quiz.questions[i];
+          if (Q.qtypes.isEmpty(q)) continue;
+          const r = Q.qtypes.clean(q);
+          if (typeof r === 'string') {
+            msg.textContent = 'Pytanie ' + (i + 1) + ': ' + r + '.';
+            if (list.children[i]) list.children[i].scrollIntoView({ block: 'center', behavior: 'smooth' });
+            return;
+          }
+          clean.push(r);
+        }
+        if (!clean.length) { msg.textContent = 'Dodaj co najmniej jedno pytanie.'; return; }
+        const own = Q.quizzes.loadOwn();
+        const rec = { id: quiz.id || 'q' + Date.now(), title: quiz.title, desc: quiz.desc, emoji: quiz.emoji, visibility: quiz.visibility, questions: clean };
+        const idx = own.findIndex(x => x.id === rec.id);
+        if (idx >= 0) own[idx] = rec; else own.unshift(rec);
+        if (Q.quizzes.saveOwn(own)) mySets();
+      }
+      draw();
+      dash(section,
+        h('button', { class: 'back', onclick: stepDetails }, '← Wróć do szczegółów'),
+        h('h2', {}, editing ? 'Edytuj zestaw' : 'Kreator zestawów'),
+        steps(2),
+        h('div', { class: 'set-summary' },
+          h('span', { class: 'set-emoji' }, quiz.emoji),
+          h('div', { class: 'grow' },
+            h('strong', {}, quiz.title),
+            h('div', { class: 'muted small' }, (quiz.visibility === 'private' ? '🔒 Prywatny' : '🌍 Publiczny') + (quiz.desc ? ' · ' + quiz.desc : ''))),
+          btn('✏️ Szczegóły', stepDetails, 'small ghost')),
+        list,
+        h('div', { class: 'add-q' },
+          h('p', { class: 'label' }, 'Dodaj pytanie:'),
+          h('div', { class: 'type-tiles' }, Q.qtypes.list.map(t => h('button', { class: 'type-tile', onclick: () => addQ(t.id) },
+            h('span', { class: 'type-tile-ic' }, t.icon), h('strong', {}, t.name), h('span', { class: 'muted small' }, t.desc))))),
+        msg,
+        h('div', { class: 'btn-row left save-row' }, btn('💾 Zapisz zestaw', save, 'big'), editing ? btn('Anuluj', leave, 'ghost') : null));
+    }
   }
 
   // start: ?pin=123456 w adresie od razu otwiera dołączanie

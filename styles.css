@@ -345,7 +345,7 @@ body.dash main { max-width: 1000px; width: 100%; }
 .play-hint { display: flex; align-items: center; gap: 10px; justify-content: center; margin-top: 22px; color: var(--muted); text-align: center; flex-wrap: wrap; }
 
 @media (max-width: 760px) {
-  body.dash .layout { grid-template-columns: 1fr; }
+  body.dash .layout { grid-template-columns: minmax(0, 1fr); }
   body.dash #side {
     position: fixed; top: auto; bottom: 0; left: 0; right: 0; height: auto; z-index: 25;
     flex-direction: row; justify-content: space-around; gap: 0; padding: 6px 4px calc(6px + env(safe-area-inset-bottom));

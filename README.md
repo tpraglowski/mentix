@@ -11,5 +11,7 @@ Strona z quizami i trybami gry. Host wybiera quiz i tryb, gracze dołączają ko
 ## Pliki
 - `app.js` – ekrany, host/gracz, rozgrywka
 - `core.js` – narzędzia + `Q.registerMode`
-- `quizzes.js` – quizy wbudowane i zapisywanie własnych (localStorage)
+- `quizzes.js` – zestawy wbudowane i zapisywanie własnych (localStorage)
+- `qtypes.js` – typy pytań (jedna poprawna, kilka poprawnych, prawda/fałsz, wpisywanie, kolejność)
+- `creator.css` – wygląd kreatora zestawów i typów pytań
 - `modes/` – tryby gry
