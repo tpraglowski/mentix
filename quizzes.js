@@ -2,7 +2,9 @@
 // Format pytania: { q: 'treść', a: ['odp1','odp2','odp3','odp4'], c: indeksPoprawnej (0-3) }
 (function () {
   'use strict';
-  const KEY = 'qzl_quizzes_v1';
+  // własne zestawy: osobno dla gościa i dla każdego konta
+  const GUEST = 'qzl_quizzes_v1';
+  let KEY = GUEST;
 
   const builtin = [
     {
@@ -81,6 +83,8 @@
     builtin,
     loadOwn,
     saveOwn,
-    all: () => loadOwn().concat(builtin)
+    all: () => loadOwn().concat(builtin),
+    setUser: uid => { KEY = uid ? 'qzl_quizzes_u_' + uid : GUEST; },
+    clearGuest: () => { try { localStorage.removeItem(GUEST); } catch (e) {} }
   };
 })();

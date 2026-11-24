@@ -1,0 +1,33 @@
+/* MENTIX — konta i panel administratora */
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.acct-btn { display: inline-flex; align-items: center; gap: 8px; background: #fff; color: var(--or-dd); border: 0; border-radius: 999px; padding: 6px 14px 6px 8px; font-weight: 900; box-shadow: 0 3px 0 var(--or-dd); max-width: 60vw; }
+.acct-btn:hover { filter: brightness(.97); }
+.acct-ic, .acct-ava { font-family: 'Noto Emoji', sans-serif; font-weight: 700; color: var(--or); }
+.acct-btn .acct-ic { width: 28px; height: 28px; border-radius: 50%; background: var(--or-l); display: grid; place-items: center; }
+.acct-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-role { background: var(--or); color: #fff; border-radius: 999px; padding: 1px 8px; font-size: .75rem; white-space: nowrap; }
+
+.auth-box { max-width: 440px; display: flex; flex-direction: column; gap: 10px; }
+.auth-box h2 { margin: 4px 0; }
+.auth-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; background: var(--or-ll); border-radius: 14px; padding: 4px; }
+.auth-tab { border: 0; background: none; border-radius: 10px; padding: 8px; font-weight: 900; color: var(--muted); }
+.auth-tab.on { background: #fff; color: var(--or-d); box-shadow: 0 2px 0 var(--line); }
+.auth-box .error:empty { display: none; }
+
+.acct-card { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; background: #fff; border: 3px solid var(--line); border-radius: 24px; padding: 22px; box-shadow: var(--shadow); }
+.acct-card h3 { margin: 0 0 4px; font-size: 1.6rem; }
+.acct-card p { margin: 2px 0; }
+.acct-ava { font-size: 3rem; width: 90px; height: 90px; border-radius: 50%; background: var(--or-ll); border: 3px solid var(--line); display: grid; place-items: center; flex: none; }
+.acct-card .btn-row { width: 100%; }
+
+.admin-link .side-icon { color: var(--or-dd); }
+.admin-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
+.admin-row { display: flex; align-items: center; gap: 10px; background: #fff; border: 3px solid var(--line); border-radius: 14px; padding: 8px 12px; flex-wrap: wrap; }
+.admin-row .acct-ic { font-size: 1.3rem; }
+.small-ic { font-size: 1.6rem; }
+.badge.admin { background: var(--or); color: #fff; }
+
+@media (max-width: 760px) {
+  .acct-role { display: none; }
+  .logo-text { font-size: 1.3rem; }
+}

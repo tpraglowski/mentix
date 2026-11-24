@@ -60,21 +60,34 @@
   }
   function saveMe() { try { localStorage.setItem('qzl_me', JSON.stringify(me)); } catch (e) {} }
 
-  // ---------- panel z menu (Graj / Odkrywaj / Kreator / Moje zestawy / Ulubione) ----------
+  // ---------- panel z menu (Graj / Odkrywaj / Kreator / Moje zestawy / Ulubione / Admin) ----------
   const SECTIONS = [
     { id: 'graj', label: 'Graj', icon: '🎮', fn: () => play() },
     { id: 'odkrywaj', label: 'Odkrywaj', icon: '🧭', fn: () => discover() },
     { id: 'kreator', label: 'Kreator zestawów', icon: '✏️', fn: () => editQuiz(null) },
     { id: 'moje', label: 'Moje zestawy', icon: '🗂️', fn: () => mySets() },
-    { id: 'ulubione', label: 'Ulubione', icon: '⭐', fn: () => favorites() }
+    { id: 'ulubione', label: 'Ulubione', icon: '⭐', fn: () => favorites() },
+    { id: 'admin', label: 'Admin', icon: '🛡️', fn: () => adminPanel(), admin: true },
+    { id: 'konto', label: 'Konto', icon: '👤', fn: () => accountScreen(), hidden: true }
   ];
   let current = 'odkrywaj';
+  let cloudApi = null;                 // API bazy (cloud.js) albo null
+  const isAdmin = () => !!(cloudApi && cloudApi.isAdmin);
+  const account = () => (cloudApi && cloudApi.account) || null;
   const side = document.getElementById('side');
-  side.replaceChildren(...SECTIONS.map(sec => h('a', {
-    href: '#' + sec.id, class: 'side-link', 'data-id': sec.id,
-    onclick: e => { e.preventDefault(); go(sec.id); }
-  }, h('span', { class: 'side-icon' }, sec.icon), h('span', { class: 'side-label' }, sec.label))));
-  function go(id) { endSession(); (SECTIONS.find(x => x.id === id) || SECTIONS[0]).fn(); }
+  function drawSide() {
+    side.replaceChildren(...SECTIONS.filter(sec => !sec.hidden && (!sec.admin || isAdmin())).map(sec => h('a', {
+      href: '#' + sec.id, class: 'side-link' + (sec.id === current ? ' on' : '') + (sec.admin ? ' admin-link' : ''), 'data-id': sec.id,
+      onclick: e => { e.preventDefault(); go(sec.id); }
+    }, h('span', { class: 'side-icon' }, sec.icon), h('span', { class: 'side-label' }, sec.label))));
+  }
+  drawSide();
+  function go(id) {
+    endSession();
+    let sec = SECTIONS.find(x => x.id === id) || SECTIONS[1];
+    if (sec.admin && !isAdmin()) sec = SECTIONS[1];
+    sec.fn();
+  }
   function home() { go(current); }
   function dash(id, ...nodes) {
     screen(...nodes);
@@ -82,6 +95,18 @@
     document.body.classList.add('dash');
     side.querySelectorAll('.side-link').forEach(a => a.classList.toggle('on', a.dataset.id === id));
     if (location.hash !== '#' + id) history.replaceState(null, '', location.pathname + '#' + id);
+  }
+
+  // ---------- konto: przycisk w górnym pasku ----------
+  const acctBox = document.getElementById('acct');
+  function drawAcct() {
+    if (!cloudApi) { acctBox.replaceChildren(); return; }
+    const a = account();
+    acctBox.replaceChildren(a
+      ? h('button', { class: 'acct-btn', onclick: () => go('konto') },
+        h('span', { class: 'acct-ic' }, '👤'), h('span', { class: 'acct-name' }, a.login),
+        a.role === 'admin' ? h('span', { class: 'acct-role' }, '🛡️ Admin') : null)
+      : h('button', { class: 'acct-btn login', onclick: () => go('konto') }, h('span', { class: 'acct-ic' }, '👤'), h('span', { class: 'acct-name' }, 'Zaloguj się')));
   }
 
   // ---------- Graj: dołączanie do gry ----------
@@ -124,7 +149,7 @@
     return b;
   }
 
-  // ---------- wspólna baza: publiczne zestawy ----------
+  // ---------- wspólna baza: zestawy (publiczne + konta) ----------
   const newSetId = () => 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   const isOwn = q => Q.quizzes.loadOwn().some(x => x.id === q.id);
   let remoteSets = [];            // ostatnio pobrane publiczne zestawy z bazy
@@ -142,29 +167,77 @@
     box.append(n);
     setTimeout(() => n.remove(), 3500);
   }
-  // wysyła / usuwa zestaw w bazie zależnie od widoczności; zapamiętuje, czy się udało
+  const authorName = () => (account() ? account().login : me.name) || '';
+  // czy zestaw powinien być w bazie: z kontem — każdy; bez konta — tylko publiczny
+  const belongsInCloud = rec => !!account() || rec.visibility !== 'private';
+  function markCloud(id, ok) {
+    const own = Q.quizzes.loadOwn(); const x = own.find(o => o.id === id);
+    if (x) { x.cloud = ok; Q.quizzes.saveOwn(own); }
+  }
   async function syncSet(rec, quiet) {
     const cloud = await Q.cloudReady;
-    const mark = ok => {
-      const own = Q.quizzes.loadOwn(); const x = own.find(o => o.id === rec.id);
-      if (x) { x.cloud = ok; Q.quizzes.saveOwn(own); }
-    };
-    if (!cloud) { if (rec.visibility === 'public') { mark(false); if (!quiet) notify('⚠️ Brak połączenia z bazą — zestaw zapisany tylko na tym urządzeniu.', 'bad'); } return false; }
+    const want = belongsInCloud(rec);
+    if (!cloud) { if (want) { markCloud(rec.id, false); if (!quiet) notify('⚠️ Brak połączenia z bazą — zestaw zapisany tylko na tym urządzeniu.', 'bad'); } return false; }
     try {
-      if (rec.visibility === 'public') { await cloud.publish(rec, me.name); mark(true); if (!quiet) notify('🌍 Zestaw opublikowany — widzą go wszyscy w Odkrywaj.', 'good'); }
-      else { await cloud.unpublish(rec.id); mark(false); }
+      if (want) {
+        await cloud.save(rec, authorName());
+        markCloud(rec.id, true);
+        if (!quiet) notify(rec.visibility === 'public' ? '🌍 Zestaw opublikowany — widzą go wszyscy w Odkrywaj.' : '☁️ Zestaw zapisany na Twoim koncie (prywatny).', 'good');
+      } else { await cloud.remove(rec.id); markCloud(rec.id, false); }
       return true;
     } catch (e) {
       console.warn('MENTIX sync:', e);
-      if (rec.visibility === 'public') mark(false);
+      if (want) markCloud(rec.id, false);
       if (!quiet) notify('⚠️ Nie udało się wysłać zestawu do bazy (' + (e.code || e.message) + '). Zapisany na tym urządzeniu.', 'bad');
       return false;
     }
   }
-  // po starcie: dosyłamy publiczne zestawy, które jeszcze nie trafiły do bazy
-  Q.cloudReady.then(cloud => {
-    if (!cloud) return;
-    Q.quizzes.loadOwn().filter(x => x.visibility !== 'private' && !x.cloud).forEach(x => syncSet(x, true));
+  // pobiera zestawy z konta i łączy z lokalnymi (nowszy wygrywa)
+  async function pullMine() {
+    if (!account()) return;
+    let list;
+    try { list = await cloudApi.listMine(); } catch (e) { console.warn('MENTIX listMine:', e); return; }
+    const own = Q.quizzes.loadOwn();
+    const byId = new Map(own.map(x => [x.id, x]));
+    const remoteIds = new Set(list.map(r => r.id));
+    for (const r of list) {
+      const l = byId.get(r.id);
+      if (!l || (r.updatedAt || 0) > (l.updatedAt || 0)) {
+        byId.set(r.id, { id: r.id, title: r.title, desc: r.desc, emoji: r.emoji, visibility: r.visibility, questions: r.questions, updatedAt: r.updatedAt, cloud: true });
+      }
+    }
+    // zestaw był w bazie, a już go tam nie ma = usunięty na innym urządzeniu
+    for (const [id, x] of byId) if (x.cloud === true && !remoteIds.has(id)) byId.delete(id);
+    Q.quizzes.saveOwn([...byId.values()].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)));
+  }
+  function resync() {
+    Q.quizzes.loadOwn().filter(x => x.cloud !== true && belongsInCloud(x)).forEach(x => syncSet(x, true));
+  }
+  // zmiana konta (start, logowanie, rejestracja, wylogowanie)
+  let prevUid = null, prevAccount = null;
+  async function onAuth(c) {
+    const acc = c.account;
+    const registered = acc && !prevAccount && prevUid === c.uid;    // gość właśnie założył konto
+    const guestSets = registered ? Q.quizzes.loadOwn() : null;
+    Q.quizzes.setUser(acc ? c.uid : null);
+    if (registered && guestSets.length) {
+      // zestawy gościa przechodzą na nowe konto
+      const mine = Q.quizzes.loadOwn(); const ids = new Set(mine.map(x => x.id));
+      Q.quizzes.saveOwn(mine.concat(guestSets.filter(x => !ids.has(x.id)).map(x => Object.assign({}, x, { cloud: false }))));
+      Q.quizzes.clearGuest();
+    }
+    prevUid = c.uid; prevAccount = acc;
+    drawAcct(); drawSide();
+    if (acc) await pullMine();
+    resync();
+    // odśwież widok panelu (nie przerywamy gry ani kreatora)
+    if (document.body.classList.contains('dash') && !session && ['odkrywaj', 'moje', 'ulubione', 'admin', 'konto', 'graj'].includes(current)) go(current);
+  }
+  Q.cloudReady.then(c => {
+    cloudApi = c;
+    if (!c) return;
+    c.onChange(onAuth);
+    onAuth(c);
   });
 
   function setCard(q, onFavChange) {
@@ -247,7 +320,7 @@
             btn('Usuń', () => {
               if (!confirm('Usunąć zestaw „' + q.title + '”?')) return;
               Q.quizzes.saveOwn(Q.quizzes.loadOwn().filter(x => x.id !== q.id));
-              if (q.visibility !== 'private') syncSet({ id: q.id, visibility: 'private' }, true);
+              if (q.cloud !== false && cloudApi) cloudApi.remove(q.id).catch(e => console.warn(e));
               mySets();
             }, 'small danger')));
           return c;
@@ -271,7 +344,8 @@
             btn('Hostuj', () => pickMode(q, 'host'), 'big'),
             btn('Solo', () => pickMode(q, 'solo'), 'big ghost'),
             favButton(q, 'btn ghost fav-btn'),
-            isOwn(q) ? btn('Edytuj', () => editQuiz(q), 'ghost') : btn('Kopiuj i edytuj', copy, 'ghost')))),
+            isOwn(q) ? btn('Edytuj', () => editQuiz(q), 'ghost') : btn('Kopiuj i edytuj', copy, 'ghost'),
+            q.remote && !isOwn(q) && isAdmin() ? btn('🛡️ Usuń (admin)', () => adminDelete(q, () => go(backTo)), 'danger') : null))),
       h('ol', { class: 'q-preview' }, q.questions.map(x => {
         const t = Q.qtypes.typeOf(x);
         return h('li', {},
@@ -626,7 +700,7 @@
   // ---------- GRACZ ----------
   function joinScreen(pin, error) {
     endSession();
-    const name = h('input', { class: 'name-input', maxlength: '16', placeholder: 'Twój nick', value: me.name, autocomplete: 'off' });
+    const name = h('input', { class: 'name-input', maxlength: '16', placeholder: 'Twój nick', value: me.name || (account() ? account().login : ''), autocomplete: 'off' });
     const go = () => {
       const n = name.value.replace(/\s+/g, ' ').trim();
       if (!n) return shake(name);
@@ -737,6 +811,128 @@
         setTimeout(() => { if (session === S) endSession(); }, 1500);
       }
     }
+  }
+
+  // ---------- konto: logowanie / rejestracja / profil ----------
+  function authError(e) {
+    const c = (e && e.code) || '';
+    if (c === 'bad-login') return 'Login: 3–16 znaków — tylko małe litery a–z, cyfry i _.';
+    if (/invalid-credential|wrong-password|user-not-found|invalid-email/.test(c)) return 'Zły login albo hasło.';
+    if (/email-already-in-use|credential-already-in-use|account-exists/.test(c)) return 'Ten login jest już zajęty — wybierz inny.';
+    if (/weak-password/.test(c)) return 'Hasło musi mieć co najmniej 6 znaków.';
+    if (/operation-not-allowed/.test(c)) return 'Logowanie hasłem nie jest jeszcze włączone w Firebase (Authentication → Sign-in method → Email/Password).';
+    if (/too-many-requests/.test(c)) return 'Za dużo prób — spróbuj za chwilę.';
+    if (/network-request-failed/.test(c)) return 'Brak połączenia z internetem.';
+    return 'Coś poszło nie tak (' + (c || (e && e.message)) + ').';
+  }
+
+  function accountScreen(mode) {
+    if (!cloudApi) {
+      dash('konto', h('h2', {}, 'Konto'), emptyBox('⚠️', 'Brak połączenia z bazą.', 'Sprawdź internet i odśwież stronę.', null));
+      return;
+    }
+    const a = account();
+    if (a) {
+      dash('konto',
+        h('h2', {}, 'Twoje konto'),
+        h('div', { class: 'acct-card' },
+          h('div', { class: 'acct-ava' }, '👤'),
+          h('div', { class: 'grow' },
+            h('h3', {}, a.login),
+            h('p', { class: 'muted' }, a.role === 'admin' ? '🛡️ Administrator' : 'Zwykłe konto'),
+            h('p', { class: 'muted small' }, 'Twoje zestawy (także prywatne) są zapisane na koncie — po zalogowaniu zobaczysz je na każdym urządzeniu.')),
+          h('div', { class: 'btn-row left tight' },
+            btn('Moje zestawy', () => go('moje'), 'ghost'),
+            a.role === 'admin' ? btn('🛡️ Panel admina', () => go('admin'), 'ghost') : null,
+            btn('Wyloguj się', async () => {
+              try { await cloudApi.logout(); notify('Wylogowano.', 'good'); } catch (e) { notify(authError(e), 'bad'); }
+            }))));
+      return;
+    }
+    mode = mode === 'register' ? 'register' : 'login';
+    const reg = mode === 'register';
+    const login = h('input', { class: 'name-input', maxlength: '16', placeholder: 'Login', autocomplete: 'username', autocapitalize: 'off', spellcheck: 'false' });
+    const pw = h('input', { class: 'name-input', type: 'password', placeholder: 'Hasło', autocomplete: reg ? 'new-password' : 'current-password' });
+    const pw2 = reg ? h('input', { class: 'name-input', type: 'password', placeholder: 'Powtórz hasło', autocomplete: 'new-password' }) : null;
+    const msg = h('p', { class: 'error' });
+    const send = btn(reg ? 'Załóż konto' : 'Zaloguj się', submit, 'big wide');
+    login.oninput = () => { const v = login.value.toLowerCase().replace(/[^a-z0-9_]/g, ''); if (v !== login.value) login.value = v; msg.textContent = ''; };
+    [login, pw, pw2].forEach(i => { if (i) i.onkeydown = e => { if (e.key === 'Enter') submit(); }; });
+    async function submit() {
+      const l = login.value.trim().toLowerCase();
+      if (!cloudApi.validLogin(l)) { msg.textContent = authError({ code: 'bad-login' }); return shake(login); }
+      if (pw.value.length < 6) { msg.textContent = 'Hasło musi mieć co najmniej 6 znaków.'; return shake(pw); }
+      if (reg && pw.value !== pw2.value) { msg.textContent = 'Hasła się różnią.'; return shake(pw2); }
+      send.disabled = true; send.textContent = reg ? 'Zakładam konto…' : 'Loguję…';
+      try {
+        if (reg) await cloudApi.register(l, pw.value); else await cloudApi.login(l, pw.value);
+        notify(reg ? '🎉 Konto założone — witaj, ' + l + '!' : 'Zalogowano jako ' + l + '.', 'good');
+        go('moje');
+      } catch (e) {
+        console.warn('MENTIX auth:', e);
+        msg.textContent = authError(e);
+        send.disabled = false; send.textContent = reg ? 'Załóż konto' : 'Zaloguj się';
+      }
+    }
+    dash('konto',
+      h('div', { class: 'join-box auth-box' },
+        h('div', { class: 'auth-tabs' },
+          h('button', { class: 'auth-tab' + (reg ? '' : ' on'), onclick: () => accountScreen('login') }, 'Logowanie'),
+          h('button', { class: 'auth-tab' + (reg ? ' on' : ''), onclick: () => accountScreen('register') }, 'Rejestracja')),
+        h('h2', {}, reg ? 'Załóż konto' : 'Zaloguj się'),
+        login, pw, pw2, msg, send,
+        h('p', { class: 'muted small' }, reg
+          ? 'Login: 3–16 znaków (małe litery, cyfry, _). Twoje dotychczasowe zestawy z tego urządzenia przejdą na nowe konto.'
+          : 'Zestawy zrobione bez logowania zostają na tym urządzeniu jako zestawy gościa.')));
+    setTimeout(() => login.focus(), 50);
+  }
+
+  // ---------- panel administratora ----------
+  async function adminDelete(q, after) {
+    if (!confirm('Usunąć zestaw „' + q.title + '” (autor: ' + (q.author || 'anonim') + ') dla wszystkich?')) return;
+    try {
+      await cloudApi.adminDeleteSet(q.id);
+      remoteSets = remoteSets.filter(r => r.id !== q.id);
+      notify('Zestaw usunięty.', 'good');
+      if (after) after();
+    } catch (e) { notify('Nie udało się usunąć (' + (e.code || e.message) + ').', 'bad'); }
+  }
+
+  function adminPanel() {
+    if (!isAdmin()) { go('odkrywaj'); return; }
+    const users = h('div', { class: 'admin-list' }, h('p', { class: 'muted' }, '⏳ Wczytuję…'));
+    const sets = h('div', { class: 'admin-list' }, h('p', { class: 'muted' }, '⏳ Wczytuję…'));
+    dash('admin',
+      h('h2', {}, '🛡️ Panel administratora'),
+      h('h3', {}, 'Użytkownicy'), users,
+      h('h3', {}, 'Publiczne zestawy'), sets);
+    const fail = (box, e) => box.replaceChildren(h('p', { class: 'error' }, 'Błąd: ' + (e.code || e.message) + (/permission/.test(e.code || '') ? ' — czy reguły bazy są opublikowane?' : '')));
+    cloudApi.listUsers().then(list => {
+      if (!users.isConnected) return;
+      const me = cloudApi.uid;
+      users.replaceChildren(...(list.length ? list.map(u => h('div', { class: 'admin-row' },
+        h('span', { class: 'acct-ic' }, '👤'),
+        h('strong', { class: 'grow' }, u.login, u.uid === me ? ' (Ty)' : ''),
+        h('span', { class: 'badge' + (u.role === 'admin' ? ' admin' : '') }, u.role === 'admin' ? '🛡️ Admin' : 'Użytkownik'),
+        u.uid === me || u.boot ? h('span', { class: 'muted small' }, u.boot ? 'główny admin' : '') :
+          btn(u.role === 'admin' ? 'Odbierz admina' : 'Daj admina', async () => {
+            const role = u.role === 'admin' ? 'user' : 'admin';
+            if (!confirm((role === 'admin' ? 'Dać rolę administratora: ' : 'Odebrać rolę administratora: ') + u.login + '?')) return;
+            try { await cloudApi.setRole(u.uid, role); notify('Zmieniono rolę: ' + u.login, 'good'); adminPanel(); }
+            catch (e) { notify('Nie udało się (' + (e.code || e.message) + ').', 'bad'); }
+          }, 'small ghost')
+      )) : [h('p', { class: 'muted' }, 'Brak kont.')]));
+    }).catch(e => fail(users, e));
+    cloudApi.listPublic().then(list => {
+      if (!sets.isConnected) return;
+      remoteSets = list;
+      sets.replaceChildren(...(list.length ? list.map(q => h('div', { class: 'admin-row' },
+        h('span', { class: 'set-emoji small-ic' }, q.emoji),
+        h('div', { class: 'grow' }, h('strong', {}, q.title), h('div', { class: 'muted small' }, pytan(q.questions.length) + ' · autor: ' + (q.author || 'anonim'))),
+        btn('Podgląd', () => setDetail(q), 'small ghost'),
+        btn('Usuń', () => adminDelete(q, adminPanel), 'small danger')
+      )) : [h('p', { class: 'muted' }, 'Nie ma jeszcze publicznych zestawów.')]));
+    }).catch(e => fail(sets, e));
   }
 
   // ---------- eksport / import / kreator zestawów ----------
@@ -870,7 +1066,7 @@
         }
         if (!clean.length) { msg.textContent = 'Dodaj co najmniej jedno pytanie.'; return; }
         const own = Q.quizzes.loadOwn();
-        const rec = { id: quiz.id || newSetId(), title: quiz.title, desc: quiz.desc, emoji: quiz.emoji, visibility: quiz.visibility, questions: clean };
+        const rec = { id: quiz.id || newSetId(), title: quiz.title, desc: quiz.desc, emoji: quiz.emoji, visibility: quiz.visibility, questions: clean, updatedAt: Date.now() };
         const idx = own.findIndex(x => x.id === rec.id);
         if (idx >= 0) own[idx] = rec; else own.unshift(rec);
         if (Q.quizzes.saveOwn(own)) { mySets(); syncSet(rec); }
