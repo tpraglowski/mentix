@@ -31,3 +31,6 @@
   .acct-role { display: none; }
   .logo-text { font-size: 1.3rem; }
 }
+
+/* emoji w tekście — zawsze jednokolorowe (Noto Emoji przed czcionką systemową) */
+.emo { font-family: 'Noto Emoji', sans-serif; font-weight: 700; font-style: normal; }

@@ -25,8 +25,31 @@ window.Q = (function () {
     for (const c of kids) {
       if (c == null || c === false) continue;
       if (Array.isArray(c)) add(el, c);
-      else el.append(c instanceof Node ? c : document.createTextNode(mono(String(c))));
+      else if (c instanceof Node) el.append(c);
+      else el.append(monoText(String(c)));
     }
+  }
+
+  // Emoji w tekście dostają <span class="emo"> z czcionką 'Noto Emoji' na PIERWSZYM miejscu —
+  // inaczej Safari na iPhonie rysuje je kolorowo (Apple Color Emoji), nawet z U+FE0E.
+  const EMO = /\p{Extended_Pictographic}[︎️]?(?:‍\p{Extended_Pictographic}[︎️]?)*/gu;
+  function monoText(t) {
+    t = mono(t);
+    EMO.lastIndex = 0;
+    if (!EMO.test(t)) return document.createTextNode(t);
+    const frag = document.createDocumentFragment();
+    let last = 0;
+    EMO.lastIndex = 0;
+    for (const m of t.matchAll(EMO)) {
+      if (m.index > last) frag.append(t.slice(last, m.index));
+      const s = document.createElement('span');
+      s.className = 'emo';
+      s.textContent = m[0];
+      frag.append(s);
+      last = m.index + m[0].length;
+    }
+    if (last < t.length) frag.append(t.slice(last));
+    return frag;
   }
 
   // ikonki zawsze jednokolorowe: znak U+FE0F wymusza kolorowe emoji — zamieniamy na U+FE0E (wersja tekstowa)
